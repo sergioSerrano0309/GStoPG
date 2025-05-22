@@ -12,12 +12,19 @@ app = Flask(__name__)
 SPREADSHEET_ID = "1uGiW4rKszKszkeL-TSlpMGwjQg92YUuqR8gTXJxGHvw"
 TABLE_NAME = "empleados"
 
+import urllib.parse as urlparse
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL no está configurada")
+
+url = urlparse.urlparse(DATABASE_URL)
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': '5432',
-    'dbname': 'mi_base',
-    'user': 'postgres',
-    'password': '1234'
+    'host': url.hostname,
+    'port': url.port,
+    'dbname': url.path[1:],
+    'user': url.username,
+    'password': url.password
 }
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
