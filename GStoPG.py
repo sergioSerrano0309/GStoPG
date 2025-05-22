@@ -3,11 +3,12 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import pandas as pd
 import psycopg2
+import os
+import json
 
 app = Flask(__name__)
 
 # CONFIGURACIÓN
-SERVICE_ACCOUNT_FILE = r"credenciales\cogent-density-460609-r5-a5d94dc6ff86.json"
 SPREADSHEET_ID = "1uGiW4rKszKszkeL-TSlpMGwjQg92YUuqR8gTXJxGHvw"
 TABLE_NAME = "empleados"
 
@@ -24,9 +25,15 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 @app.route("/actualizar-empleados", methods=["GET"])
 def actualizar_empleados():
     try:
-        # AUTENTICACIÓN
-        credentials = service_account.Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+        # CARGAR CREDENCIALES DESDE VARIABLE DE ENTORNO
+        google_credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if not google_credentials_json:
+            return jsonify({"status": "error", "message": "Variable de entorno 'GOOGLE_CREDENTIALS_JSON' no configurada."}), 500
+
+        credentials_info = json.loads(google_credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info, scopes=SCOPES)
+
         sheets_service = build('sheets', 'v4', credentials=credentials)
 
         # LEER DATOS DE GOOGLE SHEETS
