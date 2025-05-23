@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, render_template_string
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import pandas as pd
@@ -11,18 +11,18 @@ app = Flask(__name__)
 
 # CONFIGURACIÓN
 SPREADSHEET_ID = "1uGiW4rKszKszkeL-TSlpMGwjQg92YUuqR8gTXJxGHvw"
-TABLE_NAME = "empleados" 
+TABLE_NAME = "empleados"
 
 # Leer variables de entorno
-DATABASE_URL = os.getenv("DATABASE_URL")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+database_url = os.getenv("DATABASE_URL")
+google_credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 # Validación
-if not GOOGLE_CREDENTIALS_JSON or not DATABASE_URL:
+if not google_credentials_json or not database_url:
     raise Exception("Las variables de entorno 'GOOGLE_CREDENTIALS_JSON' y 'DATABASE_URL' deben estar configuradas.")
 
 # Parsear conexión a PostgreSQL
-url = urlparse.urlparse(DATABASE_URL)
+url = urlparse.urlparse(database_url)
 DB_CONFIG = {
     'host': url.hostname,
     'port': url.port,
@@ -33,80 +33,121 @@ DB_CONFIG = {
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
+HTML_TEMPLATE = """
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>{{ title }}</title>
+  </head>
+  <body>
+    <div class="container mt-4">
+      <h1>{{ title }}</h1>
+      <div class="table-responsive">{{ table|safe }}</div>
+      {% if message %}
+        <p class="alert alert-info mt-3">{{ message }}</p>
+      {% endif %}
+    </div>
+  </body>
+</html>
+"""
+
 @app.route("/ver-datos-google", methods=["GET"])
 def ver_datos_google():
     try:
-        credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_info, scopes=SCOPES)
-        sheets_service = build('sheets', 'v4', credentials=credentials)
+        creds_info = json.loads(google_credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        service = build('sheets', 'v4', credentials=credentials)
 
-        result = sheets_service.spreadsheets().values().get(
+        result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range="A1:Z100"
         ).execute()
 
         rows = result.get('values', [])
         if not rows:
-            return jsonify({"status": "vacio", "mensaje": "La hoja está vacía."})
+            return render_template_string(
+                HTML_TEMPLATE,
+                title="Ver datos - Google Sheet",
+                table="",
+                message="La hoja está vacía."
+            )
 
         df = pd.DataFrame(rows[1:], columns=rows[0])
-        return jsonify(df.to_dict(orient="records"))
+        html_table = df.to_html(classes='table table-striped', index=False)
+        return render_template_string(
+            HTML_TEMPLATE,
+            title="Datos de Google Sheet",
+            table=html_table,
+            message=None
+        )
 
     except Exception as e:
-        return jsonify({"error": str(e)})
-
+        return render_template_string(
+            HTML_TEMPLATE,
+            title="Error al obtener datos",
+            table="",
+            message=str(e)
+        )
 
 @app.route("/actualizar-empleados", methods=["GET"])
 def actualizar_empleados():
     try:
-        # Autenticación con Google Sheets
-        credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_info, scopes=SCOPES)
-        sheets_service = build('sheets', 'v4', credentials=credentials)
+        creds_info = json.loads(google_credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        service = build('sheets', 'v4', credentials=credentials)
 
-        # Leer datos
-        result = sheets_service.spreadsheets().values().get(
+        result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range="A1:Z100"
         ).execute()
 
         rows = result.get('values', [])
         if not rows:
-            return jsonify({"status": "error", "message": "La hoja está vacía."}), 400
+            return render_template_string(
+                HTML_TEMPLATE,
+                title="Actualizar empleados",
+                table="",
+                message="La hoja está vacía."
+            ), 400
 
         df = pd.DataFrame(rows[1:], columns=rows[0])
 
-        # Conexión a PostgreSQL
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         # Crear tabla si no existe
-        columns_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
-        create_sql = f'CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({columns_sql});'
-        cur.execute(create_sql)
-
-        # Borrar datos anteriores
+        cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
+        cur.execute(f'CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({cols_sql});')
         cur.execute(f'DELETE FROM {TABLE_NAME};')
 
-        # Insertar nuevos datos
         for _, row in df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
-            columns = ', '.join([f'"{col}"' for col in row.index])
-            sql = f'INSERT INTO {TABLE_NAME} ({columns}) VALUES ({placeholders});'
+            cols = ', '.join([f'"{col}"' for col in row.index])
+            sql = f'INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders});'
             cur.execute(sql, tuple(row))
 
         conn.commit()
         cur.close()
         conn.close()
 
-        return jsonify({"status": "success", "message": "Datos actualizados correctamente."}), 200
+        return render_template_string(
+            HTML_TEMPLATE,
+            title="Actualizar empleados",
+            table="",
+            message="Datos actualizados correctamente."
+        ), 200
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return render_template_string(
+            HTML_TEMPLATE,
+            title="Error al actualizar",
+            table="",
+            message=str(e)
+        ), 500
 
-# Ejecutar la app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
