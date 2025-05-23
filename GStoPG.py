@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 # CONFIGURACIÓN
 SPREADSHEET_ID = "1uGiW4rKszKszkeL-TSlpMGwjQg92YUuqR8gTXJxGHvw"
-TABLE_NAME = "empleados"
+TABLE_NAME = "monos"
 
 # Leer variables de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")
