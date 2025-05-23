@@ -26,7 +26,7 @@ HTML_TEMPLATE = """
     <title>{{ title }}</title>
     <style>
       body { padding-top: 56px; }
-      table { text-align: center; }
+      .table { text-align: center; }
     </style>
   </head>
   <body>
