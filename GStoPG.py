@@ -38,18 +38,49 @@ HTML_TEMPLATE = """
 <html lang="es">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <title>{{ title }}</title>
+    <style>
+      body { padding-top: 56px; }
+      footer { background-color: #f8f9fa; padding: 1rem 0; margin-top: 2rem; }
+    </style>
   </head>
   <body>
-    <div class="container mt-4">
-      <h1>{{ title }}</h1>
-      <div class="table-responsive">{{ table|safe }}</div>
-      {% if message %}
-        <p class="alert alert-info mt-3">{{ message }}</p>
-      {% endif %}
-    </div>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="#">Mi Empresa</a>
+      </div>
+    </nav>
+
+    <main class="container">
+      <div class="py-4">
+        <h1 class="mb-4">{{ title }}</h1>
+        {% if table %}
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="table-responsive">
+              {{ table|safe }}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if message %}
+          <div class="alert alert-info mt-4" role="alert">
+            {{ message }}
+          </div>
+        {% endif %}
+      </div>
+    </main>
+
+    <footer class="text-center">
+      <div class="container">
+        <span class="text-muted">&copy; 2025 Mi Empresa. Todos los derechos reservados.</span>
+      </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>
 """
@@ -70,13 +101,13 @@ def ver_datos_google():
         if not rows:
             return render_template_string(
                 HTML_TEMPLATE,
-                title="Ver datos - Google Sheet",
-                table="",
+                title="Ver Datos de Google Sheet",
+                table=None,
                 message="La hoja está vacía."
             )
 
         df = pd.DataFrame(rows[1:], columns=rows[0])
-        html_table = df.to_html(classes='table table-striped', index=False)
+        html_table = df.to_html(classes='table table-hover mb-0', index=False)
         return render_template_string(
             HTML_TEMPLATE,
             title="Datos de Google Sheet",
@@ -87,8 +118,8 @@ def ver_datos_google():
     except Exception as e:
         return render_template_string(
             HTML_TEMPLATE,
-            title="Error al obtener datos",
-            table="",
+            title="Error al Obtener Datos",
+            table=None,
             message=str(e)
         )
 
@@ -108,8 +139,8 @@ def actualizar_empleados():
         if not rows:
             return render_template_string(
                 HTML_TEMPLATE,
-                title="Actualizar empleados",
-                table="",
+                title="Actualizar Empleados",
+                table=None,
                 message="La hoja está vacía."
             ), 400
 
@@ -118,7 +149,6 @@ def actualizar_empleados():
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
-        # Crear tabla si no existe
         cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
         cur.execute(f'CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({cols_sql});')
         cur.execute(f'DELETE FROM {TABLE_NAME};')
@@ -135,16 +165,16 @@ def actualizar_empleados():
 
         return render_template_string(
             HTML_TEMPLATE,
-            title="Actualizar empleados",
-            table="",
+            title="Actualizar Empleados",
+            table=None,
             message="Datos actualizados correctamente."
         ), 200
 
     except Exception as e:
         return render_template_string(
             HTML_TEMPLATE,
-            title="Error al actualizar",
-            table="",
+            title="Error al Actualizar",
+            table=None,
             message=str(e)
         ), 500
 
