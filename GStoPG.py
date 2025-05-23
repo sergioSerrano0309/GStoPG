@@ -33,6 +33,30 @@ DB_CONFIG = {
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
+@app.route("/ver-datos-google", methods=["GET"])
+def ver_datos_google():
+    try:
+        credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info, scopes=SCOPES)
+        sheets_service = build('sheets', 'v4', credentials=credentials)
+
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range="A1:Z100"
+        ).execute()
+
+        rows = result.get('values', [])
+        if not rows:
+            return jsonify({"status": "vacio", "mensaje": "La hoja está vacía."})
+
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        return jsonify(df.to_dict(orient="records"))
+
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
 @app.route("/actualizar-empleados", methods=["GET"])
 def actualizar_empleados():
     try:
