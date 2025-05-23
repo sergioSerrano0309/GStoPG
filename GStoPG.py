@@ -5,6 +5,7 @@ import pandas as pd
 import psycopg2
 import os
 import json
+import urllib.parse as urlparse
 
 app = Flask(__name__)
 
@@ -12,12 +13,15 @@ app = Flask(__name__)
 SPREADSHEET_ID = "1uGiW4rKszKszkeL-TSlpMGwjQg92YUuqR8gTXJxGHvw"
 TABLE_NAME = "empleados"
 
-import urllib.parse as urlparse
-
+# Leer variables de entorno
 DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise Exception("DATABASE_URL no está configurada")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
+# Validación
+if not GOOGLE_CREDENTIALS_JSON or not DATABASE_URL:
+    raise Exception("Las variables de entorno 'GOOGLE_CREDENTIALS_JSON' y 'DATABASE_URL' deben estar configuradas.")
+
+# Parsear conexión a PostgreSQL
 url = urlparse.urlparse(DATABASE_URL)
 DB_CONFIG = {
     'host': url.hostname,
@@ -32,18 +36,13 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 @app.route("/actualizar-empleados", methods=["GET"])
 def actualizar_empleados():
     try:
-        # CARGAR CREDENCIALES DESDE VARIABLE DE ENTORNO
-        google_credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-        if not google_credentials_json:
-            return jsonify({"status": "error", "message": "Variable de entorno 'GOOGLE_CREDENTIALS_JSON' no configurada."}), 500
-
-        credentials_info = json.loads(google_credentials_json)
+        # Autenticación con Google Sheets
+        credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
         credentials = service_account.Credentials.from_service_account_info(
             credentials_info, scopes=SCOPES)
-
         sheets_service = build('sheets', 'v4', credentials=credentials)
 
-        # LEER DATOS DE GOOGLE SHEETS
+        # Leer datos
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range="A1:Z100"
@@ -55,16 +54,23 @@ def actualizar_empleados():
 
         df = pd.DataFrame(rows[1:], columns=rows[0])
 
-        # CONECTAR E INSERTAR EN POSTGRESQL
+        # Conexión a PostgreSQL
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
-        cur.execute(f"DELETE FROM {TABLE_NAME}")
+        # Crear tabla si no existe
+        columns_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
+        create_sql = f'CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({columns_sql});'
+        cur.execute(create_sql)
 
+        # Borrar datos anteriores
+        cur.execute(f'DELETE FROM {TABLE_NAME};')
+
+        # Insertar nuevos datos
         for _, row in df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
-            columns = ', '.join(row.index)
-            sql = f"INSERT INTO {TABLE_NAME} ({columns}) VALUES ({placeholders})"
+            columns = ', '.join([f'"{col}"' for col in row.index])
+            sql = f'INSERT INTO {TABLE_NAME} ({columns}) VALUES ({placeholders});'
             cur.execute(sql, tuple(row))
 
         conn.commit()
@@ -78,6 +84,5 @@ def actualizar_empleados():
 
 # Ejecutar la app
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
