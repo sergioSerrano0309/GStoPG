@@ -26,7 +26,6 @@ HTML_TEMPLATE = """
     <title>{{ title }}</title>
     <style>
       body { padding-top: 56px; }
-      .table { text-align: center; }
     </style>
   </head>
   <body>
@@ -129,7 +128,7 @@ def datos():
         conn.close()
 
         # Renderizar tabla actualizada
-        html_table = df.to_html(classes='table table-hover mb-0', index=False)
+        html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
