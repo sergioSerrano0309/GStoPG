@@ -10,7 +10,7 @@ import urllib.parse as urlparse
 app = Flask(__name__)
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-TABLE_NAME = os.getenv("TABLE_NAME")
+TABLE_NAME = os.getenv("TABLE_NAME", "datos_hoja")  # Por defecto, usar minúsculas
 DATABASE_URL = os.getenv("DATABASE_URL")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
@@ -116,11 +116,15 @@ def datos():
             'user': url.username,
             'password': url.password
         }
+        print(f"[DEBUG] Conectando a BD en host={url.hostname}, puerto={url.port}, dbname={url.path[1:]}, user={url.username}")
+
         conn = psycopg2.connect(**db_conf)
         cur = conn.cursor()
 
-        cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
-        cur.execute(f'CREATE TABLE IF NOT EXISTS "{TABLE_NAME}" ({cols_sql});')
+        # Creamos la tabla en minúsculas sin comillas
+        cols_sql = ", ".join([f"{col.lower()} TEXT" for col in df.columns])
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({cols_sql});")
+        conn.commit()
 
         def normalizar(val):
             if val is None:
@@ -134,10 +138,9 @@ def datos():
         actualizar_df = df.loc[mask_update].copy()
 
         if nuevos_df.empty and actualizar_df.empty:
-            conn.commit()
             cur.close()
             conn.close()
-            html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+            html_table = df.to_html(classes="table table-hover table-striped text-center mb-0", index=False)
             return render_template_string(
                 HTML_TEMPLATE,
                 title=TABLE_NAME,
@@ -146,18 +149,21 @@ def datos():
                 alert_type="info"
             )
 
+        # Insertar nuevos
         for _, row in nuevos_df.iterrows():
-            placeholders = ', '.join(['%s'] * len(row))
-            cols = ', '.join([f'"{col}"' for col in row.index])
+            placeholders = ", ".join(["%s"] * len(row))
+            cols = ", ".join([col.lower() for col in row.index])
             valores = tuple(row.values)
-            sql = f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});'
+            sql = f"INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders});"
             cur.execute(sql, valores)
 
+        # Actualizar registros con DB = 2
         for _, row in actualizar_df.iterrows():
-            set_clauses = ', '.join([f'"{col}" = %s' for col in row.index if col not in ['ID', 'DB']])
-            valores = tuple(row[col] for col in row.index if col not in ['ID', 'DB'])
-            sql = f'UPDATE "{TABLE_NAME}" SET {set_clauses} WHERE "ID" = %s;'
-            valores = valores + (row['ID'],)
+            columnas_para_set = [col.lower() for col in row.index if col not in ["ID", "DB"]]
+            set_clauses = ", ".join([f"{col} = %s" for col in columnas_para_set])
+            valores = tuple(row[col] for col in row.index if col not in ["ID", "DB"])
+            sql = f"UPDATE {TABLE_NAME} SET {set_clauses} WHERE id = %s;"
+            valores = valores + (row["ID"],)
             cur.execute(sql, valores)
 
         conn.commit()
@@ -165,12 +171,12 @@ def datos():
         conn.close()
 
         df_columns = list(df.columns)
-        idx_db = df_columns.index('DB')
+        idx_db = df_columns.index("DB")
 
         def idx_to_letter(n):
             s = ""
             while n >= 0:
-                s = chr(n % 26 + ord('A')) + s
+                s = chr(n % 26 + ord("A")) + s
                 n = n // 26 - 1
             return s
 
@@ -180,21 +186,15 @@ def datos():
         for fila_original in filas_a_actualizar:
             numero_fila_sheets = fila_original + 2
             celda_actualizar = f"{letra_db}{numero_fila_sheets}"
-            requests.append({
-                "range": celda_actualizar,
-                "values": [["1"]]
-            })
-        body = {
-            "valueInputOption": "RAW",
-            "data": requests
-        }
+            requests.append({"range": celda_actualizar, "values": [["1"]]})
+
+        body = {"valueInputOption": "RAW", "data": requests}
         sheets.spreadsheets().values().batchUpdate(
-            spreadsheetId=SPREADSHEET_ID,
-            body=body
+            spreadsheetId=SPREADSHEET_ID, body=body
         ).execute()
 
-        df.loc[filas_a_actualizar, 'DB'] = "1"
-        html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+        df.loc[filas_a_actualizar, "DB"] = "1"
+        html_table = df.to_html(classes="table table-hover table-striped text-center mb-0", index=False)
 
         mensaje = ""
         if not nuevos_df.empty:
@@ -211,6 +211,8 @@ def datos():
         )
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
