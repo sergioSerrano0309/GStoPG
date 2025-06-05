@@ -9,10 +9,9 @@ import urllib.parse as urlparse
 
 app = Flask(__name__)
 
-
-SPREADSHEET_ID         = os.getenv("SPREADSHEET_ID")
-TABLE_NAME             = os.getenv("TABLE_NAME")
-DATABASE_URL           = os.getenv("DATABASE_URL")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+TABLE_NAME = os.getenv("TABLE_NAME")
+DATABASE_URL = os.getenv("DATABASE_URL")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -60,12 +59,14 @@ HTML_TEMPLATE = """
 
 @app.route("/datos", methods=["GET"])
 def datos():
-    missing = [name for name, val in {
-        'SPREADSHEET_ID'         : SPREADSHEET_ID,
-        'TABLE_NAME'             : TABLE_NAME,
-        'DATABASE_URL'           : DATABASE_URL,
-        'GOOGLE_CREDENTIALS_JSON': GOOGLE_CREDENTIALS_JSON
-    }.items() if not val]
+    missing = [
+        name for name, val in {
+            'SPREADSHEET_ID': SPREADSHEET_ID,
+            'TABLE_NAME': TABLE_NAME,
+            'DATABASE_URL': DATABASE_URL,
+            'GOOGLE_CREDENTIALS_JSON': GOOGLE_CREDENTIALS_JSON
+        }.items() if not val
+    ]
     if missing:
         return render_template_string(
             HTML_TEMPLATE,
@@ -76,9 +77,9 @@ def datos():
         ), 500
 
     try:
-        creds_info  = json.loads(GOOGLE_CREDENTIALS_JSON)
+        creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
         credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        sheets      = build('sheets', 'v4', credentials=credentials)
+        sheets = build('sheets', 'v4', credentials=credentials)
 
         result = sheets.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
@@ -95,13 +96,24 @@ def datos():
                 alert_type="warning"
             )
 
-        df = pd.DataFrame(rows[1:], columns=rows[0])
+        encabezados = rows[0]
+        num_cols = len(encabezados)
+        datos_completos = []
+        for fila in rows[1:]:
+            if len(fila) < num_cols:
+                fila = fila + [""] * (num_cols - len(fila))
+            if len(fila) > num_cols:
+                fila = fila[:num_cols]
+            datos_completos.append(fila)
+
+        df = pd.DataFrame(datos_completos, columns=encabezados)
 
         def es_por_insertar(val):
             if val is None:
                 return True
             txt = str(val).strip()
             return (txt == "") or (txt == "0")
+
         mask_insert = df['DB'].apply(es_por_insertar)
 
         if not mask_insert.any():
@@ -115,24 +127,25 @@ def datos():
             )
 
         nuevos_df = df.loc[mask_insert].copy()
+
         url = urlparse.urlparse(DATABASE_URL)
         db_conf = {
-            'host'   : url.hostname,
-            'port'   : url.port,
-            'dbname' : url.path[1:],
-            'user'   : url.username,
+            'host': url.hostname,
+            'port': url.port,
+            'dbname': url.path[1:],
+            'user': url.username,
             'password': url.password
         }
         conn = psycopg2.connect(**db_conf)
-        cur  = conn.cursor()
+        cur = conn.cursor()
 
         cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
         cur.execute(f'CREATE TABLE IF NOT EXISTS "{TABLE_NAME}" ({cols_sql});')
 
         for idx, row in nuevos_df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
-            cols         = ', '.join([f'"{col}"' for col in row.index])
-            valores      = tuple(row.values)
+            cols = ', '.join([f'"{col}"' for col in row.index])
+            valores = tuple(row.values)
             sql = f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});'
             cur.execute(sql, valores)
 
@@ -141,24 +154,20 @@ def datos():
         conn.close()
 
         df_columns = list(df.columns)
-        try:
-            idx_db = df_columns.index('DB')  
-        except ValueError:
-            raise ValueError("La columna 'DB' no existe en la hoja. Verifica encabezados.")
+        idx_db = df_columns.index('DB')
 
         def idx_to_letter(n):
-            """Convierte n (0-based) a letra de columna tipo Excel (0→A, 25→Z, 26→AA, etc.)."""
             s = ""
             while n >= 0:
                 s = chr(n % 26 + ord('A')) + s
                 n = n // 26 - 1
             return s
 
-        letra_db = idx_to_letter(idx_db)  
+        letra_db = idx_to_letter(idx_db)
         requests = []
         for fila_original in nuevos_df.index:
             numero_fila_sheets = fila_original + 2
-            celda_actualizar   = f"{letra_db}{numero_fila_sheets}"
+            celda_actualizar = f"{letra_db}{numero_fila_sheets}"
             requests.append({
                 "range": celda_actualizar,
                 "values": [["1"]]
