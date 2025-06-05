@@ -9,34 +9,34 @@ import urllib.parse as urlparse
 
 app = Flask(__name__)
 
-# Configuración a través de variables de entorno
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-TABLE_NAME = os.getenv("TABLE_NAME")
-DATABASE_URL = os.getenv("DATABASE_URL")
+
+SPREADSHEET_ID         = os.getenv("SPREADSHEET_ID")
+TABLE_NAME             = os.getenv("TABLE_NAME")
+DATABASE_URL           = os.getenv("DATABASE_URL")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-# Plantilla HTML profesional y genérica
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
 HTML_TEMPLATE = """
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ title }}</title>
-    <style>
-      body { padding-top: 56px; }
-      tr { text-align: center; }
-    </style>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    />
   </head>
   <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
       <div class="container-fluid">
-        <span class="navbar-brand mb-0 h1">{{ title }}</span>
+        <a class="navbar-brand" href="#">Gestión de Datos</a>
       </div>
     </nav>
 
-    <main class="container">
+    <main class="container" style="padding-top: 80px;">
       <div class="py-4">
         {% if message %}
           <div class="alert alert-{{ alert_type }}" role="alert">{{ message }}</div>
@@ -58,15 +58,12 @@ HTML_TEMPLATE = """
 </html>
 """
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-
 @app.route("/datos", methods=["GET"])
 def datos():
-    # Verificar configuración
     missing = [name for name, val in {
-        'SPREADSHEET_ID': SPREADSHEET_ID,
-        'TABLE_NAME': TABLE_NAME,
-        'DATABASE_URL': DATABASE_URL,
+        'SPREADSHEET_ID'         : SPREADSHEET_ID,
+        'TABLE_NAME'             : TABLE_NAME,
+        'DATABASE_URL'           : DATABASE_URL,
         'GOOGLE_CREDENTIALS_JSON': GOOGLE_CREDENTIALS_JSON
     }.items() if not val]
     if missing:
@@ -79,62 +76,110 @@ def datos():
         ), 500
 
     try:
-        # Autenticación Google Sheets
-        creds_info = json.loads(GOOGLE_CREDENTIALS_JSON)
+        creds_info  = json.loads(GOOGLE_CREDENTIALS_JSON)
         credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        sheets = build('sheets', 'v4', credentials=credentials)
+        sheets      = build('sheets', 'v4', credentials=credentials)
 
-        # Leer datos de la hoja
         result = sheets.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range="A1:Z100"
         ).execute()
         rows = result.get('values', [])
-        if not rows:
+
+        if not rows or len(rows) < 2:
             return render_template_string(
                 HTML_TEMPLATE,
                 title=TABLE_NAME,
                 table=None,
-                message="La hoja está vacía.",
+                message="La hoja está vacía o solo tiene encabezados.",
                 alert_type="warning"
             )
 
         df = pd.DataFrame(rows[1:], columns=rows[0])
 
-        # Parsear URL de la BD
+        def es_por_insertar(val):
+            if val is None:
+                return True
+            txt = str(val).strip()
+            return (txt == "") or (txt == "0")
+        mask_insert = df['DB'].apply(es_por_insertar)
+
+        if not mask_insert.any():
+            html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+            return render_template_string(
+                HTML_TEMPLATE,
+                title=TABLE_NAME,
+                table=html_table,
+                message="No hay nuevos registros (DB=0 o vacío).",
+                alert_type="info"
+            )
+
+        nuevos_df = df.loc[mask_insert].copy()
         url = urlparse.urlparse(DATABASE_URL)
         db_conf = {
-            'host': url.hostname,
-            'port': url.port,
-            'dbname': url.path[1:],
-            'user': url.username,
+            'host'   : url.hostname,
+            'port'   : url.port,
+            'dbname' : url.path[1:],
+            'user'   : url.username,
             'password': url.password
         }
-
-        # Actualizar base de datos genéricamente
         conn = psycopg2.connect(**db_conf)
-        cur = conn.cursor()
+        cur  = conn.cursor()
+
         cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
         cur.execute(f'CREATE TABLE IF NOT EXISTS "{TABLE_NAME}" ({cols_sql});')
-        cur.execute(f'DELETE FROM "{TABLE_NAME}";')
-        for _, row in df.iterrows():
+
+        for idx, row in nuevos_df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
-            cols = ', '.join([f'"{col}"' for col in row.index])
-            cur.execute(
-                f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});',
-                tuple(row)
-            )
+            cols         = ', '.join([f'"{col}"' for col in row.index])
+            valores      = tuple(row.values)
+            sql = f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});'
+            cur.execute(sql, valores)
+
         conn.commit()
         cur.close()
         conn.close()
 
-        # Renderizar tabla actualizada
+        df_columns = list(df.columns)
+        try:
+            idx_db = df_columns.index('DB')  
+        except ValueError:
+            raise ValueError("La columna 'DB' no existe en la hoja. Verifica encabezados.")
+
+        def idx_to_letter(n):
+            """Convierte n (0-based) a letra de columna tipo Excel (0→A, 25→Z, 26→AA, etc.)."""
+            s = ""
+            while n >= 0:
+                s = chr(n % 26 + ord('A')) + s
+                n = n // 26 - 1
+            return s
+
+        letra_db = idx_to_letter(idx_db)  
+        requests = []
+        for fila_original in nuevos_df.index:
+            numero_fila_sheets = fila_original + 2
+            celda_actualizar   = f"{letra_db}{numero_fila_sheets}"
+            requests.append({
+                "range": celda_actualizar,
+                "values": [["1"]]
+            })
+        body = {
+            "valueInputOption": "RAW",
+            "data": requests
+        }
+        sheets.spreadsheets().values().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body=body
+        ).execute()
+
+        df.loc[mask_insert, 'DB'] = "1"
         html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
             table=html_table,
-            message="Datos actualizados correctamente.",
+            message=f"Se han insertado {len(nuevos_df)} fila(s) y actualizado DB a 1.",
             alert_type="success"
         )
 
@@ -146,6 +191,7 @@ def datos():
             message=f"Error: {e}",
             alert_type="danger"
         ), 500
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
