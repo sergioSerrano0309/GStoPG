@@ -10,7 +10,7 @@ import urllib.parse as urlparse
 app = Flask(__name__)
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-TABLE_NAME = os.getenv("TABLE_NAME", "datos_hoja")  # Por defecto, usar minúsculas
+TABLE_NAME = os.getenv("TABLE_NAME", "datos_hoja")
 DATABASE_URL = os.getenv("DATABASE_URL")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
@@ -37,17 +37,22 @@ HTML_TEMPLATE = """
 
     <main class="container" style="padding-top: 80px;">
       <div class="py-4">
+        {% if debug_msg %}
+          <div class="alert alert-secondary" role="alert">
+            {{ debug_msg }}
+          </div>
+        {% endif %}
         {% if message %}
           <div class="alert alert-{{ alert_type }}" role="alert">{{ message }}</div>
         {% endif %}
         {% if table %}
-        <div class="card shadow-sm">
-          <div class="card-body">
-            <div class="table-responsive">
-              {{ table|safe }}
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <div class="table-responsive">
+                {{ table|safe }}
+              </div>
             </div>
           </div>
-        </div>
         {% endif %}
       </div>
     </main>
@@ -71,6 +76,7 @@ def datos():
         return render_template_string(
             HTML_TEMPLATE,
             title="Error de Configuración",
+            debug_msg="",
             table=None,
             message=f"Falta configurar: {', '.join(missing)}",
             alert_type="danger"
@@ -91,6 +97,7 @@ def datos():
             return render_template_string(
                 HTML_TEMPLATE,
                 title=TABLE_NAME,
+                debug_msg="",
                 table=None,
                 message="La hoja está vacía o solo tiene encabezados.",
                 alert_type="warning"
@@ -116,12 +123,11 @@ def datos():
             'user': url.username,
             'password': url.password
         }
-        print(f"[DEBUG] Conectando a BD en host={url.hostname}, puerto={url.port}, dbname={url.path[1:]}, user={url.username}")
+        debug_msg = f"Conectando a BD → host: {url.hostname}, puerto: {url.port}, db: {url.path[1:]}, user: {url.username}"
 
         conn = psycopg2.connect(**db_conf)
         cur = conn.cursor()
 
-        # Creamos la tabla en minúsculas sin comillas
         cols_sql = ", ".join([f"{col.lower()} TEXT" for col in df.columns])
         cur.execute(f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ({cols_sql});")
         conn.commit()
@@ -140,16 +146,15 @@ def datos():
         if nuevos_df.empty and actualizar_df.empty:
             cur.close()
             conn.close()
-            html_table = df.to_html(classes="table table-hover table-striped text-center mb-0", index=False)
             return render_template_string(
                 HTML_TEMPLATE,
                 title=TABLE_NAME,
-                table=html_table,
+                debug_msg=debug_msg,
+                table=df.to_html(classes="table table-hover table-striped text-center mb-0", index=False),
                 message="No hay registros para insertar o actualizar.",
                 alert_type="info"
             )
 
-        # Insertar nuevos
         for _, row in nuevos_df.iterrows():
             placeholders = ", ".join(["%s"] * len(row))
             cols = ", ".join([col.lower() for col in row.index])
@@ -157,7 +162,6 @@ def datos():
             sql = f"INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders});"
             cur.execute(sql, valores)
 
-        # Actualizar registros con DB = 2
         for _, row in actualizar_df.iterrows():
             columnas_para_set = [col.lower() for col in row.index if col not in ["ID", "DB"]]
             set_clauses = ", ".join([f"{col} = %s" for col in columnas_para_set])
@@ -205,6 +209,7 @@ def datos():
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
+            debug_msg=debug_msg,
             table=html_table,
             message=mensaje.strip(),
             alert_type="success"
@@ -216,6 +221,7 @@ def datos():
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
+            debug_msg="",
             table=None,
             message=f"Error: {e}",
             alert_type="danger"
