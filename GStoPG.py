@@ -122,19 +122,13 @@ def datos():
         cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
         cur.execute(f'CREATE TABLE IF NOT EXISTS "{TABLE_NAME}" ({cols_sql});')
 
-        def es_por_insertar(val):
+        def normalizar(val):
             if val is None:
-                return True
-            txt = str(val).strip()
-            return (txt == "") or (txt == "0")
+                return ""
+            return str(val).strip()
 
-        def es_por_actualizar(val):
-            if val is None:
-                return False
-            return str(val).strip() == "2"
-
-        mask_insert = df['DB'].apply(es_por_insertar)
-        mask_update = df['DB'].apply(es_por_actualizar)
+        mask_insert = df['DB'].apply(lambda v: normalizar(v) in ["", "0"])
+        mask_update = df['DB'].apply(lambda v: normalizar(v) == "2")
 
         nuevos_df = df.loc[mask_insert].copy()
         actualizar_df = df.loc[mask_update].copy()
@@ -152,16 +146,16 @@ def datos():
                 alert_type="info"
             )
 
-        for idx, row in nuevos_df.iterrows():
+        for _, row in nuevos_df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
             cols = ', '.join([f'"{col}"' for col in row.index])
             valores = tuple(row.values)
             sql = f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});'
             cur.execute(sql, valores)
 
-        for idx, row in actualizar_df.iterrows():
-            set_clauses = ', '.join([f'"{col}" = %s' for col in row.index if col != 'ID' and col != 'DB'])
-            valores = tuple(row[col] for col in row.index if col != 'ID' and col != 'DB')
+        for _, row in actualizar_df.iterrows():
+            set_clauses = ', '.join([f'"{col}" = %s' for col in row.index if col not in ['ID', 'DB']])
+            valores = tuple(row[col] for col in row.index if col not in ['ID', 'DB'])
             sql = f'UPDATE "{TABLE_NAME}" SET {set_clauses} WHERE "ID" = %s;'
             valores = valores + (row['ID'],)
             cur.execute(sql, valores)
