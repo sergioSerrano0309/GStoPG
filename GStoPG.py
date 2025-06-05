@@ -108,26 +108,6 @@ def datos():
 
         df = pd.DataFrame(datos_completos, columns=encabezados)
 
-        def es_por_insertar(val):
-            if val is None:
-                return True
-            txt = str(val).strip()
-            return (txt == "") or (txt == "0")
-
-        mask_insert = df['DB'].apply(es_por_insertar)
-
-        if not mask_insert.any():
-            html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
-            return render_template_string(
-                HTML_TEMPLATE,
-                title=TABLE_NAME,
-                table=html_table,
-                message="No hay nuevos registros (DB=0 o vacío).",
-                alert_type="info"
-            )
-
-        nuevos_df = df.loc[mask_insert].copy()
-
         url = urlparse.urlparse(DATABASE_URL)
         db_conf = {
             'host': url.hostname,
@@ -142,11 +122,48 @@ def datos():
         cols_sql = ', '.join([f'"{col}" TEXT' for col in df.columns])
         cur.execute(f'CREATE TABLE IF NOT EXISTS "{TABLE_NAME}" ({cols_sql});')
 
+        def es_por_insertar(val):
+            if val is None:
+                return True
+            txt = str(val).strip()
+            return (txt == "") or (txt == "0")
+
+        def es_por_actualizar(val):
+            if val is None:
+                return False
+            return str(val).strip() == "2"
+
+        mask_insert = df['DB'].apply(es_por_insertar)
+        mask_update = df['DB'].apply(es_por_actualizar)
+
+        nuevos_df = df.loc[mask_insert].copy()
+        actualizar_df = df.loc[mask_update].copy()
+
+        if nuevos_df.empty and actualizar_df.empty:
+            conn.commit()
+            cur.close()
+            conn.close()
+            html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+            return render_template_string(
+                HTML_TEMPLATE,
+                title=TABLE_NAME,
+                table=html_table,
+                message="No hay registros para insertar o actualizar.",
+                alert_type="info"
+            )
+
         for idx, row in nuevos_df.iterrows():
             placeholders = ', '.join(['%s'] * len(row))
             cols = ', '.join([f'"{col}"' for col in row.index])
             valores = tuple(row.values)
             sql = f'INSERT INTO "{TABLE_NAME}" ({cols}) VALUES ({placeholders});'
+            cur.execute(sql, valores)
+
+        for idx, row in actualizar_df.iterrows():
+            set_clauses = ', '.join([f'"{col}" = %s' for col in row.index if col != 'ID' and col != 'DB'])
+            valores = tuple(row[col] for col in row.index if col != 'ID' and col != 'DB')
+            sql = f'UPDATE "{TABLE_NAME}" SET {set_clauses} WHERE "ID" = %s;'
+            valores = valores + (row['ID'],)
             cur.execute(sql, valores)
 
         conn.commit()
@@ -165,7 +182,8 @@ def datos():
 
         letra_db = idx_to_letter(idx_db)
         requests = []
-        for fila_original in nuevos_df.index:
+        filas_a_actualizar = list(nuevos_df.index) + list(actualizar_df.index)
+        for fila_original in filas_a_actualizar:
             numero_fila_sheets = fila_original + 2
             celda_actualizar = f"{letra_db}{numero_fila_sheets}"
             requests.append({
@@ -181,14 +199,20 @@ def datos():
             body=body
         ).execute()
 
-        df.loc[mask_insert, 'DB'] = "1"
+        df.loc[filas_a_actualizar, 'DB'] = "1"
         html_table = df.to_html(classes='table table-hover table-striped text-center mb-0', index=False)
+
+        mensaje = ""
+        if not nuevos_df.empty:
+            mensaje += f"Se han insertado {len(nuevos_df)} fila(s). "
+        if not actualizar_df.empty:
+            mensaje += f"Se han actualizado {len(actualizar_df)} fila(s)."
 
         return render_template_string(
             HTML_TEMPLATE,
             title=TABLE_NAME,
             table=html_table,
-            message=f"Se han insertado {len(nuevos_df)} fila(s) y actualizado DB a 1.",
+            message=mensaje.strip(),
             alert_type="success"
         )
 
@@ -200,7 +224,6 @@ def datos():
             message=f"Error: {e}",
             alert_type="danger"
         ), 500
-
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
