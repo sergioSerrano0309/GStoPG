@@ -156,19 +156,27 @@ def datos():
             )
 
         for _, row in nuevos_df.iterrows():
+            print("Insertando:", tuple(row))
             placeholders = ", ".join(["%s"] * len(row))
             cols = ", ".join([col.lower() for col in row.index])
             valores = tuple(row.values)
             sql = f"INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders});"
+            
+            
             cur.execute(sql, valores)
 
         for _, row in actualizar_df.iterrows():
+            print("Actualizando:", tuple(row))
             columnas_para_set = [col.lower() for col in row.index if col not in ["ID", "DB"]]
             set_clauses = ", ".join([f"{col} = %s" for col in columnas_para_set])
             valores = tuple(row[col] for col in row.index if col not in ["ID", "DB"])
             sql = f"UPDATE {TABLE_NAME} SET {set_clauses} WHERE id = %s;"
             valores = valores + (row["ID"],)
             cur.execute(sql, valores)
+
+        print("Cantidad de filas a insertar:", len(df))
+        print("Primeras filas:")
+        print(df.head())
 
         conn.commit()
         cur.close()
@@ -218,14 +226,7 @@ def datos():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return render_template_string(
-            HTML_TEMPLATE,
-            title=TABLE_NAME,
-            debug_msg="",
-            table=None,
-            message=f"Error: {e}",
-            alert_type="danger"
-        ), 500
+        raise
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
