@@ -156,7 +156,7 @@ def datos():
             )
 
         for _, row in nuevos_df.iterrows():
-            print("Insertando:", tuple(row))
+            print("Insertando:", tuple(row), flush=True)
             placeholders = ", ".join(["%s"] * len(row))
             cols = ", ".join([col.lower() for col in row.index])
             valores = tuple(row.values)
@@ -166,7 +166,7 @@ def datos():
             cur.execute(sql, valores)
 
         for _, row in actualizar_df.iterrows():
-            print("Actualizando:", tuple(row))
+            print("Actualizando:", tuple(row), flush=True)
             columnas_para_set = [col.lower() for col in row.index if col not in ["ID", "DB"]]
             set_clauses = ", ".join([f"{col} = %s" for col in columnas_para_set])
             valores = tuple(row[col] for col in row.index if col not in ["ID", "DB"])
@@ -174,9 +174,9 @@ def datos():
             valores = valores + (row["ID"],)
             cur.execute(sql, valores)
 
-        print("Cantidad de filas a insertar:", len(df))
-        print("Primeras filas:")
-        print(df.head())
+        print("Cantidad de filas a insertar:", len(df), flush=True)
+        print("Primeras filas:", flush=True)
+        print(df.head(), flush=True)
 
         conn.commit()
         cur.close()
