@@ -124,6 +124,12 @@ def datos():
         nuevos_df = df[mask_insert].copy()
         actualizar_df = df[mask_update].copy()
 
+        # Asignar DB=1 para marcar en la BD
+        if not nuevos_df.empty:
+            nuevos_df['DB'] = '1'
+        if not actualizar_df.empty:
+            actualizar_df['DB'] = '1'
+
         # Si no hay acciones pendientes, mostrar contenido de la BD
         if nuevos_df.empty and actualizar_df.empty:
             df_db = pd.read_sql(f"SELECT * FROM {TABLE_NAME}", conn)
@@ -139,7 +145,7 @@ def datos():
                 alert_type="info"
             )
 
-        # Insertar nuevas filas
+        # Insertar nuevas filas con DB=1
         print(f"Nuevos registros a insertar: {len(nuevos_df)}", flush=True)
         for _, row in nuevos_df.iterrows():
             placeholders = ", ".join(["%s"] * len(row))
@@ -147,21 +153,23 @@ def datos():
             values = tuple(row.values)
             cur.execute(f"INSERT INTO {TABLE_NAME} ({cols}) VALUES ({placeholders});", values)
 
-        # Actualizar filas existentes
+        # Actualizar filas existentes, incluyendo DB=1
         print(f"Registros a actualizar: {len(actualizar_df)}", flush=True)
         for _, row in actualizar_df.iterrows():
-            cols_upd = [col.lower() for col in row.index if col not in ["ID", "DB"]]
+            cols_upd = [col.lower() for col in row.index if col != 'ID']
             set_clause = ", ".join([f"{col} = %s" for col in cols_upd])
-            values = tuple(row[col] for col in row.index if col not in ["ID", "DB"] ) + (row["ID"],)
+            values = tuple(row[col] for col in row.index if col != 'ID') + (row['ID'],)
             cur.execute(f"UPDATE {TABLE_NAME} SET {set_clause} WHERE id = %s;", values)
 
-        # Confirmar transacciones y leer la BD
+        # Confirmar transacciones
         conn.commit()
+
+        # Leer la BD actualizada
         df_db = pd.read_sql(f"SELECT * FROM {TABLE_NAME}", conn)
         cur.close()
         conn.close()
 
-        # Marcar en la hoja las filas procesadas
+        # Marcar en la hoja las filas procesadas (DB=1)
         idx_db = df.columns.get_loc("DB")
         def idx_to_letter(n):
             s = ""
