@@ -1,22 +1,27 @@
 from flask import Flask, render_template_string
-from google.oauth2 import service_account
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 import pandas as pd
 import psycopg2
 import os
-import json
 import urllib.parse as urlparse
 
 app = Flask(__name__)
 
+# Configuración desde .env y variables de entorno
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 TABLE_NAME = os.getenv("TABLE_NAME", "datos_hoja")
 DATABASE_URL = os.getenv("DATABASE_URL")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+CRED_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+# Scopes de API de Google
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 # Plantilla HTML
+HTML_TEMPLATE = """... (omitida para brevedad, mantén tu plantilla existente) ..."""
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
