@@ -1,25 +1,23 @@
-version: '3.8'
 services:
-  app:
-    build: .
-    container_name: gs-app
-    env_file: .env
-    ports:
-    environment:
-      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
-      - "5000:5000"
-    depends_on:
-      - db
-
   db:
     image: postgres:15
     container_name: gs-db
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+    env_file: .env
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: gs-app
+    environment:
+      SPREADSHEET_ID:                ${SPREADSHEET_ID}
+      TABLE_NAME:                    ${TABLE_NAME}
+      DATABASE_URL:                  ${DATABASE_URL}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
 
 volumes:
   pgdata:
