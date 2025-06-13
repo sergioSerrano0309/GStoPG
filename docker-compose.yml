@@ -1,18 +1,23 @@
+version: "3.8"
+
 services:
   db:
     image: postgres:15
     container_name: gs-db
-    env_file: .env
+    environment:
+      POSTGRES_USER:     postgresdb_phox_user
+      POSTGRES_PASSWORD: XZg0zSe5f5hvpY6St2y9c1AZj3PkqFh3
+      POSTGRES_DB:       postgresdb_phox
+    ports:
+      - "5432:5432"      # expone el Postgres local en tu localhost:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   app:
     build: .
     container_name: gs-app
+    env_file: .env       # para SPREADSHEET_ID, TABLE_NAME y DATABASE_URL
     environment:
-      SPREADSHEET_ID:                ${SPREADSHEET_ID}
-      TABLE_NAME:                    ${TABLE_NAME}
-      DATABASE_URL:                  ${DATABASE_URL}
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
     ports:
       - "5000:5000"
