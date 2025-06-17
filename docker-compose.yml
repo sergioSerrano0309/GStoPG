@@ -1,28 +1,27 @@
 version: "3.8"
 
 services:
-  db:
-    image: postgres:15
-    container_name: gs-db
-    environment:
-      POSTGRES_USER:     postgresdb_phox_user
-      POSTGRES_PASSWORD: XZg0zSe5f5hvpY6St2y9c1AZj3PkqFh3
-      POSTGRES_DB:       postgresdb_phox
-    ports:
-      - "5432:5432"      # expone el Postgres local en tu localhost:5432
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-  app:
+  importador:
     build: .
-    container_name: gs-app
-    env_file: .env       # para SPREADSHEET_ID, TABLE_NAME y DATABASE_URL
-    environment:
-      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials.json
-    ports:
-      - "5000:5000"
+    container_name: gs_importer
+    env_file:
+      - .env
     depends_on:
-      - db
+      - cartagena_superset_db
+    networks:
+      - superset_net
 
-volumes:
-  pgdata:
+  cartagena_superset_db:
+    image: postgres:14
+    container_name: cartagena_superset_db
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: Sup3rs3gura321
+      POSTGRES_DB: superset
+    ports:
+      - "5448:5432"
+    networks:
+      - superset_net
+
+networks:
+  superset_net:

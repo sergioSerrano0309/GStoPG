@@ -8,7 +8,7 @@ import urllib.parse as urlparse
 
 app = Flask(__name__)
 
-# --- Configuración desde entorno ---
+#Configuración desde entorno
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 TABLE_NAME    = os.getenv("TABLE_NAME", "datos_hoja")
 DATABASE_URL  = os.getenv("DATABASE_URL")
